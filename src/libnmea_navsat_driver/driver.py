@@ -35,6 +35,7 @@ import math
 import rclpy
 
 from rclpy.node import Node
+from std_msgs.msg import Int8
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from geometry_msgs.msg import TwistStamped, QuaternionStamped
 from tf_transformations import quaternion_from_euler
@@ -46,10 +47,11 @@ class Ros2NMEADriver(Node):
     def __init__(self):
         super().__init__('nmea_navsat_driver')
 
-        self.fix_pub = self.create_publisher(NavSatFix, 'fix', 10)
-        self.vel_pub = self.create_publisher(TwistStamped, 'vel', 10)
-        self.heading_pub = self.create_publisher(QuaternionStamped, 'heading', 10)
-        self.time_ref_pub = self.create_publisher(TimeReference, 'time_reference', 10)
+        self.fix_pub = self.create_publisher(NavSatFix, 'fix', 1)
+        self.vel_pub = self.create_publisher(TwistStamped, 'vel', 1)
+        self.heading_pub = self.create_publisher(QuaternionStamped, 'heading', 1)
+        self.time_ref_pub = self.create_publisher(TimeReference, 'time_reference', 1)
+        self.fix_type_pub = self.create_publisher(Int8, 'fix_type', 1)
 
         self.time_ref_source = self.declare_parameter('time_ref_source', 'gps').value
         self.use_RMC = self.declare_parameter('useRMC', False).value
@@ -100,19 +102,19 @@ class Ros2NMEADriver(Node):
             # RTK Fix
             4: [
                 self.default_epe_quality4,
-                NavSatStatus.STATUS_GBAS_FIX,
+                4,
                 NavSatFix.COVARIANCE_TYPE_APPROXIMATED
             ],
             # RTK Float
             5: [
                 self.default_epe_quality5,
-                NavSatStatus.STATUS_GBAS_FIX,
+                5,
                 NavSatFix.COVARIANCE_TYPE_APPROXIMATED
             ],
             # WAAS
             9: [
                 self.default_epe_quality9,
-                NavSatStatus.STATUS_GBAS_FIX,
+                9,
                 NavSatFix.COVARIANCE_TYPE_APPROXIMATED
             ]
         }
@@ -191,6 +193,12 @@ class Ros2NMEADriver(Node):
             current_fix.position_covariance[8] = (2 * hdop * self.alt_std_dev) ** 2  # FIXME
 
             self.fix_pub.publish(current_fix)
+
+            fix_type_msg = Int8()
+            #fix_type_msg.header.stamp = current_time
+            #fix_type_msg.header.frame_id = frame_id
+            fix_type_msg.data = fix_type
+            self.fix_type_pub.publish(fix_type_msg)
 
             if not math.isnan(data['utc_time']):
                 current_time_ref.time_ref = rclpy.time.Time(seconds=data['utc_time']).to_msg()
