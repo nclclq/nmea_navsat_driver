@@ -32,6 +32,7 @@
 
 import re
 import time
+import datetime
 import calendar
 import math
 import rclpy
@@ -62,21 +63,68 @@ def convert_longitude(field):
 
 
 def convert_time(nmea_utc):
-    # Get current time in UTC for date information
-    utc_struct = time.gmtime()  # immutable, so cannot modify this one
-    utc_list = list(utc_struct)
     # If one of the time fields is empty, return NaN seconds
     if not nmea_utc[0:2] or not nmea_utc[2:4] or not nmea_utc[4:6]:
-        return float('NaN')
-    else:
-        hours = int(nmea_utc[0:2])
-        minutes = int(nmea_utc[2:4])
-        seconds = int(nmea_utc[4:6])
-        utc_list[3] = hours
-        utc_list[4] = minutes
-        utc_list[5] = seconds
-        unix_time = calendar.timegm(tuple(utc_list))
-        return unix_time
+        return (float('NaN'), float('NaN'))
+
+    # Get current time in UTC for date information
+    utc_time = datetime.datetime.utcnow()
+    hours = int(nmea_utc[0:2])
+    minutes = int(nmea_utc[2:4])
+    seconds = int(nmea_utc[4:6])
+    nanosecs = 0
+    # If the seconds includes a decimal portion, convert it to nanoseconds
+    if len(nmea_utc) > 7:
+        nanosecs = int(nmea_utc[7:]) * pow(10, 9 - len(nmea_utc[7:]))
+
+    # Resolve the ambiguity of day
+    day_offset = int((utc_time.hour - hours)/12.0)
+    utc_time += datetime.timedelta(day_offset)
+    utc_time = utc_time.replace(hour=hours, minute=minutes, second=seconds)
+
+    unix_secs = calendar.timegm(utc_time.timetuple())
+    return (unix_secs, nanosecs)
+
+
+def convert_time_rmc(date_str, time_str):
+    """Convert a NMEA RMC date string and time string to UNIX epoch time.
+
+    Args:
+        date_str (str): NMEA UTC date string to convert, formatted as DDMMYY.
+        nmea_utc (str): NMEA UTC time string to convert. The expected format is HHMMSS.SS where
+            HH is the number of hours [0,24), MM is the number of minutes [0,60),
+            and SS.SS is the number of seconds [0,60) of the time in UTC.
+
+    Returns:
+        tuple(int, int): 2-tuple of (unix seconds, nanoseconds) if the sentence contains valid time.
+        tuple(float, float): 2-tuple of (NaN, NaN) if the sentence does not contain valid time.
+    """
+    # If one of the time fields is empty, return NaN seconds
+    if not date_str[0:6] or not time_str[0:2] or not time_str[2:4] or not time_str[4:6]:
+        return (float('NaN'), float('NaN'))
+
+    pc_year = datetime.date.today().year
+
+    # Resolve the ambiguity of century
+    """
+    example 1: utc_year = 99, pc_year = 2100
+    years = 2100 + int((2100 % 100 - 99) / 50.0) = 2099
+    example 2: utc_year = 00, pc_year = 2099
+    years = 2099 + int((2099 % 100 - 00) / 50.0) = 2100
+    """
+    utc_year = int(date_str[4:6])
+    years = pc_year + int((pc_year % 100 - utc_year) / 50.0)
+
+    months = int(date_str[2:4])
+    days = int(date_str[0:2])
+
+    hours = int(time_str[0:2])
+    minutes = int(time_str[2:4])
+    seconds = int(time_str[4:6])
+    nanosecs = int(time_str[7:]) * pow(10, 9 - len(time_str[7:]))
+
+    unix_secs = calendar.timegm((years, months, days, hours, minutes, seconds))
+    return (unix_secs, nanosecs)
 
 
 def convert_status_flag(status_flag):
@@ -114,7 +162,6 @@ parse_maps = {
         ("utc_time", convert_time, 1),
     ],
     "RMC": [
-        ("utc_time", convert_time, 1),
         ("fix_valid", convert_status_flag, 2),
         ("latitude", convert_latitude, 3),
         ("latitude_direction", str, 4),
@@ -165,5 +212,8 @@ def parse_nmea_sentence(nmea_sentence):
     parsed_sentence = {}
     for entry in parse_map:
         parsed_sentence[entry[0]] = entry[1](fields[entry[2]])
+
+    if sentence_type == "RMC":
+        parsed_sentence["utc_time"] = convert_time_rmc(fields[9], fields[1])
 
     return {sentence_type: parsed_sentence}

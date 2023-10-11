@@ -35,6 +35,7 @@ import math
 import rclpy
 
 from rclpy.node import Node
+from rclpy.time import Time
 from std_msgs.msg import Int8
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from geometry_msgs.msg import TwistStamped, QuaternionStamped
@@ -52,6 +53,7 @@ class Ros2NMEADriver(Node):
         self.heading_pub = self.create_publisher(QuaternionStamped, 'heading', 1)
         self.time_ref_pub = self.create_publisher(TimeReference, 'time_reference', 1)
         self.fix_type_pub = self.create_publisher(Int8, 'fix_type', 1)
+        self.n_satellites_pub = self.create_publisher(Int8, 'fix_satellites', 1)
 
         self.time_ref_source = self.declare_parameter('time_ref_source', 'gps').value
         self.use_RMC = self.declare_parameter('useRMC', False).value
@@ -195,13 +197,16 @@ class Ros2NMEADriver(Node):
             self.fix_pub.publish(current_fix)
 
             fix_type_msg = Int8()
-            #fix_type_msg.header.stamp = current_time
-            #fix_type_msg.header.frame_id = frame_id
             fix_type_msg.data = fix_type
             self.fix_type_pub.publish(fix_type_msg)
 
-            if not math.isnan(data['utc_time']):
-                current_time_ref.time_ref = rclpy.time.Time(seconds=data['utc_time']).to_msg()
+            self.n_satellites = data['num_satellites']
+            n_sat_msg = Int8()
+            n_sat_msg.data = self.n_satellites
+            self.n_satellites_pub.publish(n_sat_msg)
+
+            if not math.isnan(data['utc_time'][0]):
+                current_time_ref.time_ref = rclpy.time.Time(seconds=data['utc_time'][0], nanoseconds=data['utc_time'][1]).to_msg()
                 self.last_valid_fix_time = current_time_ref
                 self.time_ref_pub.publish(current_time_ref)
 
@@ -245,8 +250,8 @@ class Ros2NMEADriver(Node):
 
                 self.fix_pub.publish(current_fix)
 
-                if not math.isnan(data['utc_time']):
-                    current_time_ref.time_ref = rclpy.time.Time(seconds=data['utc_time']).to_msg()
+                if not math.isnan(data['utc_time'][0]):
+                    current_time_ref.time_ref = rclpy.time.Time(seconds=data['utc_time'][0], nanoseconds=data['utc_time'][1]).to_msg()
                     self.time_ref_pub.publish(current_time_ref)
 
             # Publish velocity from RMC regardless, since GGA doesn't provide it.
