@@ -38,6 +38,7 @@ from rclpy.node import Node
 from rclpy.time import Time
 from std_msgs.msg import Int8
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
+from nmea_msgs.msg import Gpgga
 from geometry_msgs.msg import TwistStamped, QuaternionStamped
 from tf_transformations import quaternion_from_euler
 from libnmea_navsat_driver.checksum_utils import check_nmea_checksum
@@ -52,11 +53,11 @@ class Ros2NMEADriver(Node):
         self.vel_pub = self.create_publisher(TwistStamped, 'vel', 1)
         self.heading_pub = self.create_publisher(QuaternionStamped, 'heading', 1)
         self.time_ref_pub = self.create_publisher(TimeReference, 'time_reference', 1)
-        self.fix_type_pub = self.create_publisher(Int8, 'fix_type', 1)
-        self.n_satellites_pub = self.create_publisher(Int8, 'fix_satellites', 1)
+        self.gga_pub = self.create_publisher(Gpgga, 'gga', 1)
 
         self.time_ref_source = self.declare_parameter('time_ref_source', 'gps').value
         self.use_RMC = self.declare_parameter('useRMC', False).value
+        self.use_GPSTime = self.declare_parameter('useGPSTime', True).value
         self.valid_fix = False
 
         # epe = estimated position error
@@ -166,6 +167,11 @@ class Ros2NMEADriver(Node):
             else:
                 self.valid_fix = False
 
+            if self.use_GPSTime:
+                current_time = rclpy.time.Time(seconds=data['utc_time'][0], nanoseconds=data['utc_time'][1]).to_msg()
+                current_fix.header.stamp = current_time
+                current_time_ref.header.stamp = current_time
+
             current_fix.status.service = NavSatStatus.SERVICE_GPS
             latitude = data['latitude']
             if data['latitude_direction'] == 'S':
@@ -196,14 +202,27 @@ class Ros2NMEADriver(Node):
 
             self.fix_pub.publish(current_fix)
 
-            fix_type_msg = Int8()
-            fix_type_msg.data = fix_type
-            self.fix_type_pub.publish(fix_type_msg)
+            gga_msg = Gpgga()
+            gga_msg.header.stamp = current_time
+            gga_msg.header.frame_id = frame_id
+            gga_msg.message_id = '$GPGGA'
+            if not math.isnan(data['utc_time'][0]):
+                gga_msg.utc_seconds = data['utc_time'][0] + data['utc_time'][1] * pow(10, -9)
+            gga_msg.lat = data['latitude']
+            gga_msg.lon = data['longitude']
+            gga_msg.lat_dir = data['latitude_direction']
+            gga_msg.lon_dir = data['longitude_direction']
+            gga_msg.gps_qual = data['fix_type']
+            gga_msg.num_sats = data['num_satellites']
+            gga_msg.hdop = data['hdop']
+            gga_msg.alt = data['altitude']
+            gga_msg.altitude_units = 'M'
+            gga_msg.undulation = data['mean_sea_level']
+            gga_msg.undulation_units = 'M'
+            gga_msg.station_id = str(data['station_id'])
+            self.gga_pub.publish(gga_msg)
 
             self.n_satellites = data['num_satellites']
-            n_sat_msg = Int8()
-            n_sat_msg.data = self.n_satellites
-            self.n_satellites_pub.publish(n_sat_msg)
 
             if not math.isnan(data['utc_time'][0]):
                 current_time_ref.time_ref = rclpy.time.Time(seconds=data['utc_time'][0], nanoseconds=data['utc_time'][1]).to_msg()

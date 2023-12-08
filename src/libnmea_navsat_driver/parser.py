@@ -63,6 +63,20 @@ def convert_longitude(field):
 
 
 def convert_time(nmea_utc):
+    """Extract time info from a NMEA UTC time string and use it to generate a UNIX epoch time.
+    Time information (hours, minutes, seconds) is extracted from the given string and augmented
+    with the date, which is taken from the current system time on the host computer (i.e. UTC now).
+    The date ambiguity is resolved by adding a day to the current date if the host time is more than
+    12 hours behind the NMEA time and subtracting a day from the current date if the host time is
+    more than 12 hours ahead of the NMEA time.
+    Args:
+        nmea_utc (str): NMEA UTC time string to convert. The expected format is HHMMSS[.SS] where
+            HH is the number of hours [0,24), MM is the number of minutes [0,60),
+            and SS[.SS] is the number of seconds [0,60) of the time in UTC.
+    Returns:
+        tuple(int, int): 2-tuple of (unix seconds, nanoseconds) if the sentence contains valid time.
+        tuple(float, float): 2-tuple of (NaN, NaN) if the sentence does not contain valid time.
+    """
     # If one of the time fields is empty, return NaN seconds
     if not nmea_utc[0:2] or not nmea_utc[2:4] or not nmea_utc[4:6]:
         return (float('NaN'), float('NaN'))
@@ -160,6 +174,7 @@ parse_maps = {
         ("hdop", safe_float, 8),
         ("num_satellites", safe_int, 7),
         ("utc_time", convert_time, 1),
+        ("station_id", safe_int, 14),
     ],
     "RMC": [
         ("fix_valid", convert_status_flag, 2),
